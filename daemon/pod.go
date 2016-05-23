@@ -1196,7 +1196,22 @@ func (p *Pod) Start(daemon *Daemon, vmId string, lazy bool, streams []*hyperviso
 
 	for _, cInfo := range p.ctnStartInfo {
 		var cUser pod.UserContainer
-		_, err := p.vm.NewContainer(&cUser, cInfo)
+		idx, err := p.vm.NewTempContainer(&cUser, cInfo)
+		if err != nil {
+			glog.Error(err.Error())
+			return nil, err
+		}
+		code, err := p.vm.WaitContainer(p.status, idx)
+		if err != nil {
+			glog.Error(err.Error())
+			return nil, err
+		}
+		if code != 0 {
+			err = fmt.Errorf("Temp container exited with %d", code)
+			glog.Error(err.Error())
+			return nil, err
+		}
+		_, err = p.vm.NewContainer(&cUser, cInfo)
 		if err != nil {
 			glog.Error(err.Error())
 			return nil, err
