@@ -15,13 +15,17 @@ env:
 
 before_install:
   - sudo apt-get update -qq
-  - sudo apt-get install -y autoconf automake pkg-config libdevmapper-dev libsqlite3-dev libvirt-dev qemu libvirt-bin aufs-tools -qq
+  - sudo apt-get install -y -qq autoconf automake pkg-config libdevmapper-dev libsqlite3-dev libvirt-dev qemu libvirt-bin aufs-tools libcap-dev libattr1-dev
   - cd `mktemp -d`
   - mkdir -p ${GOPATH}/src/github.com/hyperhq
   - wget ftp://sources.redhat.com/pub/lvm2/LVM2.2.02.131.tgz
   - tar xf LVM2.2.02.131.tgz
   - cd LVM2.2.02.131
   - ./configure > /dev/null && make device-mapper > /dev/null && sudo make install > /dev/null
+  - cd .. && git clone https://github.com/hyperhq/qemu.git
+  - cd qemu
+  - ./configure --prefix=/usr/ --target-list=x86_64-softmmu --disable-sdl --disable-gtk --enable-virtfs
+  - make > /dev/null && sudo make install > /dev/null
 
 # override the default `install`, otherwise default `install` will export ${TRAVIS_BUILD_DIR}/Godeps/_workspace as GOPATH
 # see https://docs.travis-ci.com/user/languages/go#Dependency-Management
