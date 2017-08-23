@@ -120,7 +120,6 @@ func (nc *NetworkContext) addInterface(inf *api.InterfaceDescription, result cha
 			close(devChan)
 			return
 		}
-
 		nc.configureInterface(idx, nc.sandbox.NextPciAddr(), fmt.Sprintf("eth%d", idx), inf, devChan)
 	}()
 
@@ -218,18 +217,7 @@ func (nc *NetworkContext) netdevInsertFailed(idx int, name string) {
 }
 
 func (nc *NetworkContext) configureInterface(index, pciAddr int, name string, inf *api.InterfaceDescription, result chan<- VmEvent) {
-	var (
-		err      error
-		settings *network.Settings
-	)
-
-	if HDriver.BuildinNetwork() {
-		/* VBox doesn't support join to bridge */
-		settings, err = nc.sandbox.DCtx.ConfigureNetwork(nc.sandbox.Id, "", inf)
-	} else {
-		settings, err = network.Configure(nc.sandbox.Id, "", false, inf)
-	}
-
+	settings, err := network.Configure(inf)
 	if err != nil {
 		nc.sandbox.Log(ERROR, "interface creating failed: %v", err.Error())
 		session := &InterfaceCreated{Id: inf.Id, Index: index, PCIAddr: pciAddr, DeviceName: name}
@@ -245,11 +233,11 @@ func (nc *NetworkContext) configureInterface(index, pciAddr int, name string, in
 
 	h := &HostNicInfo{
 		Id:      created.Id,
-		Fd:      uint64(created.Fd.Fd()),
 		Device:  created.HostDevice,
 		Mac:     created.MacAddr,
 		Bridge:  created.Bridge,
 		Gateway: created.Bridge,
+		Options: inf.Options,
 	}
 	g := &GuestNicInfo{
 		Device:  created.DeviceName,
@@ -264,11 +252,7 @@ func (nc *NetworkContext) configureInterface(index, pciAddr int, name string, in
 }
 
 func (nc *NetworkContext) cleanupInf(inf *InterfaceCreated) {
-	if !HDriver.BuildinNetwork() && inf.Fd != nil {
-		network.Close(inf.Fd)
-		inf.Fd = nil
-	}
-
+	network.ReleaseAddr(inf.IpAddr)
 }
 
 func (nc *NetworkContext) getInterface(id string) *InterfaceCreated {
@@ -349,7 +333,6 @@ func interfaceGot(id string, index int, pciAddr int, name string, inf *network.S
 		Bridge:     inf.Bridge,
 		HostDevice: inf.Device,
 		DeviceName: name,
-		Fd:         inf.File,
 		MacAddr:    inf.Mac,
 		IpAddr:     ip.String(),
 		NetMask:    mask.String(),

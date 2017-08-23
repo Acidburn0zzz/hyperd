@@ -230,7 +230,7 @@ func (xc *XenContext) RemoveDisk(ctx *hypervisor.VmContext, blockInfo *hyperviso
 	format := blockInfo.Format
 	id := blockInfo.ScsiId
 
-	go diskRoutine(false, xc, ctx, "", "", filename, format, id, callback, result)
+	go diskRoutine(false, xc, ctx, "", filename, format, id, callback, result)
 }
 
 func (xc *XenContext) AddNic(ctx *hypervisor.VmContext, host *hypervisor.HostNicInfo, guest *hypervisor.GuestNicInfo, result chan<- hypervisor.VmEvent) {
@@ -255,7 +255,7 @@ func (xc *XenContext) AddNic(ctx *hypervisor.VmContext, host *hypervisor.HostNic
 
 				glog.V(1).Infof("nic %s insert succeeded", guest.Device)
 
-				err = network.UpAndAddToBridge(fmt.Sprintf("vif%d.%d", xc.domId, guest.Index))
+				err = network.UpAndAddToBridge(fmt.Sprintf("vif%d.%d", xc.domId, guest.Index), "", "")
 				if err != nil {
 					glog.Error("fail to add vif to bridge: ", err.Error())
 					ctx.Hub <- &hypervisor.DeviceFailed{
