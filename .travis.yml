@@ -28,11 +28,12 @@ before_install:
 # see https://docs.travis-ci.com/user/languages/go#Dependency-Management
 
 install:
-  - cd ${TRAVIS_BUILD_DIR}
+  - cd ${TRAVIS_BUILD_DIR}/.. && mv -f hyperd ../hyperhq || true
+  - cd ${GOPATH}/src/github.com/hyperhq/hyperd
   - hack/install-grpc.sh
   - hack/verify-gofmt.sh
   - hack/verify-generated-proto.sh
   - ./autogen.sh && ./configure && make
 
 script:
-  - cd ${TRAVIS_BUILD_DIR} && hack/test-cmd.sh
+  - cd ${GOPATH}/src/github.com/hyperhq/hyperd && hack/test-cmd.sh
