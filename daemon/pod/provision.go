@@ -268,9 +268,14 @@ func (p *XPod) createSandbox(spec *apitypes.UserPod) error {
 	p.sandbox = sandbox
 	p.status = S_POD_STARTING
 
-	go p.waitVMInit()
 	go p.waitVMStop()
-	return sandbox.InitSandbox(config)
+	err = sandbox.InitSandbox(config)
+	if err != nil {
+		go sandbox.Shutdown()
+	}
+	p.Log(INFO, "sandbox init result: %#v", err)
+	p.setPodInitStatus(err == nil)
+	return err
 }
 
 func (p *XPod) reconnectSandbox(sandboxId string, pinfo []byte) error {
@@ -298,22 +303,16 @@ func (p *XPod) reconnectSandbox(sandboxId string, pinfo []byte) error {
 	return nil
 }
 
-func (p *XPod) waitVMInit() {
-	if p.status == S_POD_RUNNING {
+func (p *XPod) setPodInitStatus(initSuccess bool) {
+	if initSuccess && p.status == S_POD_RUNNING {
 		return
 	}
-	r := p.sandbox.WaitInit()
-	p.Log(INFO, "sandbox init result: %#v", r)
 	p.statusLock.Lock()
-	if r.IsSuccess() {
+	if initSuccess {
 		if p.status == S_POD_STARTING {
 			p.status = S_POD_RUNNING
 		}
 	} else {
-		p.statusLock.Lock()
-		if p.sandbox != nil {
-			go p.sandbox.Shutdown()
-		}
 		p.status = S_POD_STOPPING
 	}
 	p.initCond.Broadcast()
@@ -325,14 +324,14 @@ func (p *XPod) reserveNames(containers []*apitypes.UserContainer) error {
 		err  error
 		done = make([]*apitypes.UserContainer, 0, len(containers))
 	)
+	if err = p.factory.registry.ReservePod(p); err != nil {
+		return err
+	}
 	defer func() {
 		if err != nil {
 			p.releaseNames(done)
 		}
 	}()
-	if err = p.factory.registry.ReservePod(p); err != nil {
-		return err
-	}
 	for _, c := range containers {
 		if err = p.factory.registry.ReserveContainer(c.Id, c.Name, p.Id()); err != nil {
 			p.Log(ERROR, err)
