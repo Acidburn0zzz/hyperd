@@ -12,6 +12,14 @@ source "${HYPER_ROOT}/hack/lib/init.sh"
 
 function cleanup()
 {
+  echo "====== cleaning up ======"
+  vmstat
+  df -h
+  mount
+  sudo iptables -L
+  sudo iptables -L -t nat
+  dmesg
+  echo "========================"
   stop_hyperd
   rm -rf "${HYPER_TEMP}"
 
