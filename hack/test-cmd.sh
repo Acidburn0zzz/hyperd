@@ -218,6 +218,9 @@ setup_btrfs() {
   sudo mount -t btrfs -oloop /dev/shm/hyper-btrfs.img /var/lib/hyper
 }
 
+sudo iptables -F
+sudo iptables -t nat -F
+
 # test only one combination if HYPER_EXEC_DRIVER and HYPER_STORATE_DRIVER are both set
 if (set -u; echo -e "HYPER_EXEC_DRIVER is $HYPER_EXEC_DRIVER\nHYPER_STORAGE_DRIVER is $HYPER_STORAGE_DRIVER") 2>/dev/null ; then
   # qemu+rawblock: test with non-cow-rawblock, libvirt+rawblock: test with cow-enabled-rawblock
