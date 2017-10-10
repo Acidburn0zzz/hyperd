@@ -180,11 +180,6 @@ __EOF__
   hyper::test::pull_image "haproxy:1.5"
   hyper::test::check_image "haproxy" "1.5"
 
-  ALL_IMAGES="irssi:1	hyperhq/nfs-server-tester	gcr.io/google_containers/etcd:2.0.9	rethinkdb:2.3.5 gcr.io/google_containers/k8s-dns-sidecar-amd64:1.14.1"
-  for img in ${ALL_IMAGES}; do
-	  hyper::test::pull_image ${img}
-  done
-
   ########################
   # gRPC API integration #
   ########################
