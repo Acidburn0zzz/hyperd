@@ -63,24 +63,23 @@ func InitDriver() *XenDriver {
 	if res != 0 {
 		glog.Info("failed to initialize xen context")
 		return nil
-	}
-	if ctx.Version < REQUIRED_VERSION {
+	} else if ctx.Version < REQUIRED_VERSION {
 		glog.Infof("Xen version is not new enough (%d), need 4.5 or higher", ctx.Version)
 		return nil
-	}
-
-	glog.V(1).Info("Xen capabilities: ", ctx.Capabilities)
-	hvm := false
-	caps := strings.Split(ctx.Capabilities, " ")
-	for _, cap := range caps {
-		if strings.HasPrefix(cap, "hvm-") {
-			hvm = true
-			break
+	} else {
+		glog.V(1).Info("Xen capabilities: ", ctx.Capabilities)
+		hvm := false
+		caps := strings.Split(ctx.Capabilities, " ")
+		for _, cap := range caps {
+			if strings.HasPrefix(cap, "hvm-") {
+				hvm = true
+				break
+			}
 		}
-	}
-	if !hvm {
-		glog.Infof("Xen installation does not support HVM, current capabilities: %s", ctx.Capabilities)
-		return nil
+		if !hvm {
+			glog.Infof("Xen installation does not support HVM, current capabilities: %s", ctx.Capabilities)
+			return nil
+		}
 	}
 
 	sigchan := make(chan os.Signal, 1)
@@ -131,18 +130,19 @@ func (xd *XenDriver) LoadContext(persisted map[string]interface{}) (hypervisor.D
 	d, ok := persisted["domid"]
 	if !ok {
 		return nil, errors.New("cannot read the dom id info from persist info")
-	}
-	switch d.(type) {
-	case float64:
-		domid = (int)(d.(float64))
-		if domid <= 0 {
-			return nil, fmt.Errorf("loaded wrong domid %d", domid)
+	} else {
+		switch d.(type) {
+		case float64:
+			domid = (int)(d.(float64))
+			if domid <= 0 {
+				return nil, fmt.Errorf("loaded wrong domid %d", domid)
+			}
+			if HyperxlDomainCheck(xd.Ctx, (uint32)(domid)) != 0 {
+				return nil, fmt.Errorf("cannot load domain %d, not exist", domid)
+			}
+		default:
+			return nil, errors.New("wrong domid type in persist info")
 		}
-		if HyperxlDomainCheck(xd.Ctx, (uint32)(domid)) != 0 {
-			return nil, fmt.Errorf("cannot load domain %d, not exist", domid)
-		}
-	default:
-		return nil, errors.New("wrong domid type in persist info")
 	}
 
 	return &XenContext{driver: xd, domId: domid}, nil
@@ -244,37 +244,39 @@ func (xc *XenContext) AddNic(ctx *hypervisor.VmContext, host *hypervisor.HostNic
 
 		glog.V(1).Infof("allocate nic %s for dom %d", host.Mac, xc.domId)
 		hw, err := net.ParseMAC(host.Mac)
-		if err != nil {
-			glog.Errorf("failed to parse MAC %s: %v", host.Mac, err)
-			result <- &hypervisor.DeviceFailed{
-				Session: callback,
-			}
-			return
-		}
-		dev := host.Device
-		glog.V(1).Infof("add network for %d - ip: %s, br: %s, gw: %s, dev: %s, hw: %s", xc.domId, guest.Ipaddr,
-			host.Bridge, host.Bridge, dev, hw.String())
+		if err == nil {
+			//dev := fmt.Sprintf("vif%d.%d", xc.domId, guest.Index)
+			dev := host.Device
+			glog.V(1).Infof("add network for %d - ip: %s, br: %s, gw: %s, dev: %s, hw: %s", xc.domId, guest.Ipaddr,
+				host.Bridge, host.Bridge, dev, hw.String())
 
-		res := HyperxlNicAdd(xc.driver.Ctx, (uint32)(xc.domId), guest.Ipaddr[0], host.Bridge, host.Bridge, dev, []byte(hw))
-		if res != 0 {
+			res := HyperxlNicAdd(xc.driver.Ctx, (uint32)(xc.domId), guest.Ipaddr, host.Bridge, host.Bridge, dev, []byte(hw))
+			if res == 0 {
+
+				glog.V(1).Infof("nic %s insert succeeded", guest.Device)
+
+				err = network.UpAndAddToBridge(fmt.Sprintf("vif%d.%d", xc.domId, guest.Index), "")
+				if err != nil {
+					glog.Error("fail to add vif to bridge: ", err.Error())
+					ctx.Hub <- &hypervisor.DeviceFailed{
+						Session: callback,
+					}
+					HyperxlNicRemove(xc.driver.Ctx, (uint32)(xc.domId), host.Mac)
+					return
+				}
+
+				result <- callback
+				return
+			}
 			glog.V(1).Infof("nic %s insert succeeded [faked] ", guest.Device)
 			result <- callback
 			return
 		}
 
-		glog.V(1).Infof("nic %s insert succeeded", guest.Device)
-
-		if err := network.UpAndAddToBridge(dev, "", ""); err == nil {
-			result <- callback
-			return
-		}
-		glog.Error("fail to add vif to bridge: ", err.Error())
-		ctx.Hub <- &hypervisor.DeviceFailed{
+		glog.Errorf("nic %s insert failed", guest.Device)
+		result <- &hypervisor.DeviceFailed{
 			Session: callback,
 		}
-
-		HyperxlNicRemove(xc.driver.Ctx, (uint32)(xc.domId), host.Mac)
-		return
 	}()
 }
 

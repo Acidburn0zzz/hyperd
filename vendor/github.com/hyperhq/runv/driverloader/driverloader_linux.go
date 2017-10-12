@@ -11,7 +11,6 @@ import (
 	"github.com/hyperhq/runv/hypervisor/libvirt"
 	"github.com/hyperhq/runv/hypervisor/qemu"
 	"github.com/hyperhq/runv/hypervisor/xen"
-	"github.com/hyperhq/runv/hypervisor/xenpv"
 	"github.com/hyperhq/runv/lib/vsock"
 )
 
@@ -38,12 +37,6 @@ func Probe(driver string) (hd hypervisor.HypervisorDriver, err error) {
 		if qd != nil {
 			glog.V(1).Infof("Driver %q loaded", driver)
 			return qd, nil
-		}
-	case "xenpv":
-		xpd := xenpv.InitDriver()
-		if xpd != nil {
-			glog.V(1).Infof("Driver xenpv loaded")
-			return xpd, nil
 		}
 	case "xen", "":
 		xd := xen.InitDriver()

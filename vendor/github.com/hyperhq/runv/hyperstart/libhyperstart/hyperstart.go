@@ -6,16 +6,6 @@ import (
 	hyperstartapi "github.com/hyperhq/runv/hyperstart/api/json"
 )
 
-type InfUpdateType uint64
-
-const (
-	AddInf InfUpdateType = 1 << iota
-	DelInf
-	AddIP
-	DelIP
-	SetMtu
-)
-
 // Hyperstart interface to hyperstart API
 type Hyperstart interface {
 	Close()
@@ -42,7 +32,7 @@ type Hyperstart interface {
 	WriteFile(container, path string, data []byte) error
 	ReadFile(container, path string) ([]byte, error)
 	AddRoute(r []hyperstartapi.Route) error
-	UpdateInterface(t InfUpdateType, dev, newName string, addresses []hyperstartapi.IpAddress, mtu uint64) error
+	UpdateInterface(dev, ip, mask string) error
 	OnlineCpuMem() error
 }
 

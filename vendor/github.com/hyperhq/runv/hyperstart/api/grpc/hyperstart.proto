@@ -4,9 +4,6 @@ package grpc;
 
 import "google/protobuf/empty.proto";
 
-// To generate hyperstart.pb.go, run:
-// $ protoc --go_out=plugins=grpc:. hyperstart.proto
-
 // unstable
 service HyperstartService {
 	// execution
@@ -95,17 +92,10 @@ message StartSandboxRequest {
 message DestroySandboxRequest {
 }
 
-message IpAddress {
-	string address = 1;
-	string mask = 2;
-}
-
 message UpdateInterfaceRequest {
-	uint64 type	=1;
-	string device = 2;
-	string newName = 3;
-	repeated IpAddress ipAddresses = 4;
-	uint64 mtu = 5;
+	string device = 1;
+	string address = 2;
+	string mask = 3;
 }
 
 message AddRouteRequest {
@@ -147,7 +137,7 @@ message Process {
 message User {
 	string uid = 1;
 	string gid = 2;
-	repeated string additionalGids = 3;
+	repeated uint32 additionalGids = 3;
 }
 
 message Rlimit {

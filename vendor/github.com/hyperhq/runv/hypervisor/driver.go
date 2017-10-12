@@ -33,11 +33,11 @@ type BootConfig struct {
 
 type HostNicInfo struct {
 	Id      string
+	Fd      uint64
 	Device  string
 	Mac     string
 	Bridge  string
 	Gateway string
-	Options string
 }
 
 type GuestNicInfo struct {
@@ -61,6 +61,8 @@ type BuildinNetworkDriver interface {
 	HypervisorDriver
 
 	InitNetwork(bIface, bIP string, disableIptables bool) error
+	ConfigureNetwork(config *api.InterfaceDescription) (*network.Settings, error)
+	ReleaseNetwork(releasedIP string) error
 }
 
 var HDriver HypervisorDriver
@@ -90,12 +92,6 @@ type DriverContext interface {
 	Stats(ctx *VmContext) (*types.PodStats, error)
 
 	Close()
-}
-
-type ConsoleDriverContext interface {
-	DriverContext
-
-	ConnectConsole(console chan<- string) error
 }
 
 type LazyDriverContext interface {

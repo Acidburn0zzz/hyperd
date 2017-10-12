@@ -13,14 +13,10 @@ func InitNetwork(bIface, bIP string, disableIptables bool) error {
 	return nil
 }
 
-func AllocateAddr(requestedIP string) (*Settings, error) {
+func Configure(addrOnly bool, vInfo *VhostUserInfo, inf *api.InterfaceDescription) (*Settings, error) {
 	return nil, fmt.Errorf("Generial Network driver is unsupported on this os")
 }
 
-func Configure(inf *api.InterfaceDescription) (*Settings, error) {
-	return nil, fmt.Errorf("Generial Network driver is unsupported on this os")
-}
-
-func ReleaseAddr(releasedIP string) error {
+func Release(releasedIP string) error {
 	return nil
 }

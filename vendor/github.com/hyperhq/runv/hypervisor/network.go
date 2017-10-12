@@ -2,7 +2,7 @@ package hypervisor
 
 import (
 	"fmt"
-	"strings"
+	"net"
 	"sync"
 
 	"github.com/hyperhq/runv/api"
@@ -82,46 +82,19 @@ func (nc *NetworkContext) freeSlot(slot int) {
 	delete(nc.eth, slot)
 }
 
-// nextAvailableDevName find the initial device name in guest when add a new tap device
-// then rename it to some new name.
-// For example: user want to insert a new nic named "eth5" into container, which already owns
-// "eth0", "eth3" and "eth4". After tap device is added to VM, guest will detect a new device
-// named "eth1" which is first available "ethX" device, then guest will try to rename "eth1" to
-// "eth5". Then container will have "eth0", "eth3", "eth4" and "eth5" in the last.
-// This function try to find the first available "ethX" as said above. @WeiZhang555
-func (nc *NetworkContext) nextAvailableDevName() string {
-	for i := 0; i <= MAX_NIC; i++ {
-		find := false
-		for _, inf := range nc.eth {
-			if inf != nil && inf.NewName == fmt.Sprintf("eth%d", i) {
-				find = true
-				break
-			}
-		}
-		if !find {
-			return fmt.Sprintf("eth%d", i)
-		}
-	}
-
-	return ""
-}
-
 func (nc *NetworkContext) addInterface(inf *api.InterfaceDescription, result chan api.Result) {
 	if inf.Lo {
-		if len(inf.Ip) == 0 {
+		if inf.Ip == "" {
 			estr := fmt.Sprintf("creating an interface without an IP address: %#v", inf)
 			nc.sandbox.Log(ERROR, estr)
 			result <- NewSpecError(inf.Id, estr)
 			return
 		}
-		if inf.Id == "" {
-			inf.Id = "lo"
-		}
 		i := &InterfaceCreated{
 			Id:         inf.Id,
 			DeviceName: DEFAULT_LO_DEVICE_NAME,
 			IpAddr:     inf.Ip,
-			Mtu:        inf.Mtu,
+			NetMask:    "255.255.255.255",
 		}
 		nc.lo[inf.Ip] = i
 		nc.idMap[inf.Id] = i
@@ -140,19 +113,16 @@ func (nc *NetworkContext) addInterface(inf *api.InterfaceDescription, result cha
 		defer nc.slotLock.Unlock()
 
 		idx := nc.applySlot()
-		initialDevName := nc.nextAvailableDevName()
-		if inf.Id == "" {
-			inf.Id = fmt.Sprintf("%d", idx)
-		}
-		if idx < 0 || initialDevName == "" {
-			estr := fmt.Sprintf("no available ethernet slot/name for interface %#v", inf)
+		if idx < 0 {
+			estr := fmt.Sprintf("no available ethernet slot for interface %#v", inf)
 			nc.sandbox.Log(ERROR, estr)
 			result <- NewBusyError(inf.Id, estr)
 			close(devChan)
 			return
 		}
-
-		nc.configureInterface(idx, nc.sandbox.NextPciAddr(), initialDevName, inf, devChan)
+		nc.configureInterface(idx, nc.sandbox.NextPciAddr(), fmt.Sprintf("eth%d", idx),
+			&network.VhostUserInfo{nc.sandbox.Boot.EnableVhostUser, nc.sandbox.HomeDir},
+			inf, devChan)
 	}()
 
 	go func() {
@@ -235,64 +205,6 @@ func (nc *NetworkContext) removeInterface(id string, result chan api.Result) {
 	}
 }
 
-// allInterfaces return all the network interfaces except loop
-func (nc *NetworkContext) allInterfaces() (nics []*InterfaceCreated) {
-	nc.slotLock.Lock()
-	defer nc.slotLock.Unlock()
-
-	for _, v := range nc.eth {
-		if v != nil {
-			nics = append(nics, v)
-		}
-	}
-	return
-}
-
-func (nc *NetworkContext) updateInterface(inf *api.InterfaceDescription) error {
-	oldInf, ok := nc.idMap[inf.Id]
-	if !ok {
-		nc.sandbox.Log(WARNING, "trying update a non-exist interface %s", inf.Id)
-		return fmt.Errorf("interface %q not exists", inf.Id)
-	}
-
-	// only support update some fields: Name, ip addresses, mtu
-	nc.slotLock.Lock()
-	defer nc.slotLock.Unlock()
-
-	if inf.Name != "" {
-		oldInf.NewName = inf.Name
-	}
-
-	if inf.Mtu > 0 {
-		oldInf.Mtu = inf.Mtu
-	}
-
-	if len(inf.Ip) > 0 {
-		addrs := strings.Split(inf.Ip, ",")
-		oldAddrs := strings.Split(oldInf.IpAddr, ",")
-		for _, ip := range addrs {
-			var found bool
-			if ip[0] == '-' { // to delete
-				ip = ip[1:]
-				for k, i := range oldAddrs {
-					if i == ip {
-						oldAddrs = append(oldAddrs[:k], oldAddrs[k+1:]...)
-						found = true
-						break
-					}
-				}
-				if !found {
-					return fmt.Errorf("failed to delete %q: not found", ip)
-				}
-			} else { // to add
-				oldAddrs = append(oldAddrs, ip)
-			}
-		}
-		oldInf.IpAddr = strings.Join(oldAddrs, ",")
-	}
-	return nil
-}
-
 func (nc *NetworkContext) netdevInsertFailed(idx int, name string) {
 	nc.slotLock.Lock()
 	defer nc.slotLock.Unlock()
@@ -306,20 +218,26 @@ func (nc *NetworkContext) netdevInsertFailed(idx int, name string) {
 	nc.freeSlot(idx)
 }
 
-func (nc *NetworkContext) configureInterface(index, pciAddr int, name string, inf *api.InterfaceDescription, result chan<- VmEvent) {
-	if inf.TapName == "" {
-		inf.TapName = network.NicName(nc.sandbox.Id, index)
+func (nc *NetworkContext) configureInterface(index, pciAddr int, name string, vInfo *network.VhostUserInfo, inf *api.InterfaceDescription, result chan<- VmEvent) {
+	var (
+		err      error
+		settings *network.Settings
+	)
+
+	if driver, ok := HDriver.(BuildinNetworkDriver); ok {
+		settings, err = driver.ConfigureNetwork(inf)
+	} else {
+		settings, err = network.Configure(false, vInfo, inf)
 	}
 
-	settings, err := network.Configure(inf)
 	if err != nil {
 		nc.sandbox.Log(ERROR, "interface creating failed: %v", err.Error())
-		session := &InterfaceCreated{Id: inf.Id, Index: index, PCIAddr: pciAddr, DeviceName: name, NewName: inf.Name, Mtu: inf.Mtu}
+		session := &InterfaceCreated{Id: inf.Id, Index: index, PCIAddr: pciAddr, DeviceName: name}
 		result <- &DeviceFailed{Session: session}
 		return
 	}
 
-	created, err := interfaceGot(inf.Id, index, pciAddr, name, inf.Name, settings)
+	created, err := interfaceGot(inf.Id, index, pciAddr, name, settings)
 	if err != nil {
 		result <- &DeviceFailed{Session: created}
 		return
@@ -327,18 +245,14 @@ func (nc *NetworkContext) configureInterface(index, pciAddr int, name string, in
 
 	h := &HostNicInfo{
 		Id:      created.Id,
+		Fd:      uint64(created.Fd.Fd()),
 		Device:  created.HostDevice,
 		Mac:     created.MacAddr,
 		Bridge:  created.Bridge,
 		Gateway: created.Bridge,
-		Options: inf.Options,
 	}
-
-	// Note: Use created.NewName add tap name
-	// this is because created.DeviceName isn't always uniq,
-	// instead NewName is real nic name in VM which is certainly uniq
 	g := &GuestNicInfo{
-		Device:  created.NewName,
+		Device:  created.DeviceName,
 		Ipaddr:  created.IpAddr,
 		Index:   created.Index,
 		Busaddr: created.PCIAddr,
@@ -350,7 +264,10 @@ func (nc *NetworkContext) configureInterface(index, pciAddr int, name string, in
 }
 
 func (nc *NetworkContext) cleanupInf(inf *InterfaceCreated) {
-	network.ReleaseAddr(inf.IpAddr)
+	if _, ok := HDriver.(BuildinNetworkDriver); !ok && inf.Fd != nil {
+		network.Close(inf.Fd)
+		inf.Fd = nil
+	}
 }
 
 func (nc *NetworkContext) getInterface(id string) *InterfaceCreated {
@@ -364,16 +281,13 @@ func (nc *NetworkContext) getInterface(id string) *InterfaceCreated {
 	return nil
 }
 
-func (nc *NetworkContext) getIPAddrs() []string {
+func (nc *NetworkContext) getIpAddrs() []string {
 	nc.slotLock.RLock()
 	defer nc.slotLock.RUnlock()
 
 	res := []string{}
 	for _, inf := range nc.eth {
-		if inf.IpAddr != "" {
-			addrs := strings.Split(inf.IpAddr, ",")
-			res = append(res, addrs...)
-		}
+		res = append(res, inf.IpAddr)
 	}
 
 	return res
@@ -389,7 +303,7 @@ func (nc *NetworkContext) getRoutes() []hyperstartapi.Route {
 			routes = append(routes, hyperstartapi.Route{
 				Dest:    r.Destination,
 				Gateway: r.Gateway,
-				Device:  inf.NewName,
+				Device:  inf.DeviceName,
 			})
 		}
 	}
@@ -409,7 +323,14 @@ func (nc *NetworkContext) close() {
 	nc.idMap = map[string]*InterfaceCreated{}
 }
 
-func interfaceGot(id string, index int, pciAddr int, deviceName, newName string, inf *network.Settings) (*InterfaceCreated, error) {
+func interfaceGot(id string, index int, pciAddr int, name string, inf *network.Settings) (*InterfaceCreated, error) {
+	ip, nw, err := net.ParseCIDR(fmt.Sprintf("%s/%d", inf.IPAddress, inf.IPPrefixLen))
+	if err != nil {
+		return &InterfaceCreated{Index: index, PCIAddr: pciAddr, DeviceName: name}, err
+	}
+	var tmp []byte = nw.Mask
+	var mask net.IP = tmp
+
 	rt := []*RouteRule{}
 	/* Route rule is generated automaticly on first interface,
 	 * or generated on the gateway configured interface. */
@@ -420,18 +341,17 @@ func interfaceGot(id string, index int, pciAddr int, deviceName, newName string,
 		})
 	}
 
-	infc := &InterfaceCreated{
+	return &InterfaceCreated{
 		Id:         id,
 		Index:      index,
 		PCIAddr:    pciAddr,
 		Bridge:     inf.Bridge,
 		HostDevice: inf.Device,
-		DeviceName: deviceName,
-		NewName:    newName,
+		DeviceName: name,
+		Fd:         inf.File,
 		MacAddr:    inf.Mac,
-		IpAddr:     inf.IPAddress,
-		Mtu:        inf.Mtu,
+		IpAddr:     ip.String(),
+		NetMask:    mask.String(),
 		RouteTable: rt,
-	}
-	return infc, nil
+	}, nil
 }

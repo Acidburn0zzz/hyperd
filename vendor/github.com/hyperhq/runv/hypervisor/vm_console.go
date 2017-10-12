@@ -59,28 +59,24 @@ func watchVmConsole(ctx *VmContext) {
 		return
 	}
 
-	cout := make(chan string, 128)
-	if dctx, ok := ctx.DCtx.(ConsoleDriverContext); ok {
-		dctx.ConnectConsole(cout)
-	} else {
-
-		conn, err := utils.UnixSocketConnect(ctx.ConsoleSockName)
-		if err != nil {
-			ctx.Log(ERROR, "failed to connected to %s: %v", ctx.ConsoleSockName, err)
-			return
-		}
-
-		ctx.Log(TRACE, "connected to %s", ctx.ConsoleSockName)
-
-		tc, err := telnet.NewConn(conn)
-		if err != nil {
-			ctx.Log(ERROR, "fail to init telnet connection to %s: %v", ctx.ConsoleSockName, err)
-			return
-		}
-		ctx.Log(TRACE, "connected %s as telnet mode.", ctx.ConsoleSockName)
-
-		go TtyLiner(tc, cout)
+	conn, err := utils.UnixSocketConnect(ctx.ConsoleSockName)
+	if err != nil {
+		ctx.Log(ERROR, "failed to connected to %s: %v", ctx.ConsoleSockName, err)
+		return
 	}
+
+	ctx.Log(TRACE, "connected to %s", ctx.ConsoleSockName)
+
+	tc, err := telnet.NewConn(conn)
+	if err != nil {
+		ctx.Log(ERROR, "fail to init telnet connection to %s: %v", ctx.ConsoleSockName, err)
+		return
+	}
+	ctx.Log(TRACE, "connected %s as telnet mode.", ctx.ConsoleSockName)
+
+	cout := make(chan string, 128)
+	go TtyLiner(tc, cout)
+
 	const ignoreLines = 128
 	for consoleLines := 0; consoleLines < ignoreLines; consoleLines++ {
 		line, ok := <-cout

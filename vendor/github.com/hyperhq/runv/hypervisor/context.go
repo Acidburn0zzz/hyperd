@@ -58,8 +58,6 @@ type VmContext struct {
 
 	cancelWatchHyperstart chan struct{}
 
-	sockConnected chan bool
-
 	logPrefix string
 
 	lock      sync.RWMutex //protect update of context
@@ -117,28 +115,28 @@ func InitContext(id string, hub chan VmEvent, client chan *types.VmResponse, dc 
 	}
 
 	ctx = &VmContext{
-		Id:                    id,
-		Boot:                  boot,
-		PauseState:            PauseStateUnpaused,
-		pciAddr:               PciAddrFrom,
-		scsiId:                0,
-		GuestCid:              cid,
-		Hub:                   hub,
-		client:                client,
-		DCtx:                  dc,
-		HomeDir:               homeDir,
-		HyperSockName:         hyperSockName,
-		TtySockName:           ttySockName,
-		ConsoleSockName:       consoleSockName,
-		ShareDir:              shareDir,
-		timer:                 nil,
-		handler:               stateRunning,
-		current:               StateRunning,
-		volumes:               make(map[string]*DiskContext),
-		containers:            make(map[string]*ContainerContext),
-		networks:              NewNetworkContext(),
-		logPrefix:             fmt.Sprintf("SB[%s] ", id),
-		sockConnected:         make(chan bool),
+		Id:              id,
+		Boot:            boot,
+		PauseState:      PauseStateUnpaused,
+		pciAddr:         PciAddrFrom,
+		scsiId:          0,
+		GuestCid:        cid,
+		Hub:             hub,
+		client:          client,
+		DCtx:            dc,
+		HomeDir:         homeDir,
+		HyperSockName:   hyperSockName,
+		TtySockName:     ttySockName,
+		ConsoleSockName: consoleSockName,
+		ShareDir:        shareDir,
+		timer:           nil,
+		handler:         stateRunning,
+		current:         StateRunning,
+		volumes:         make(map[string]*DiskContext),
+		containers:      make(map[string]*ContainerContext),
+		networks:        NewNetworkContext(),
+		logPrefix:       fmt.Sprintf("SB[%s] ", id),
+
 		cancelWatchHyperstart: make(chan struct{}),
 	}
 	ctx.networks.sandbox = ctx
@@ -270,24 +268,6 @@ func (ctx *VmContext) RemoveInterface(id string, result chan api.Result) {
 	}
 
 	ctx.networks.removeInterface(id, result)
-}
-
-func (ctx *VmContext) UpdateInterface(inf *api.InterfaceDescription) error {
-	ctx.lock.Lock()
-	defer ctx.lock.Unlock()
-
-	if ctx.current != StateRunning {
-		ctx.Log(DEBUG, "update interface %s during %v", inf.Name, ctx.current)
-		return fmt.Errorf("pod not running")
-	}
-
-	return ctx.networks.updateInterface(inf)
-}
-
-func (ctx *VmContext) AllInterfaces() []*InterfaceCreated {
-	ctx.lock.Lock()
-	defer ctx.lock.Unlock()
-	return ctx.networks.allInterfaces()
 }
 
 func (ctx *VmContext) validateContainer(c *api.ContainerDescription) error {

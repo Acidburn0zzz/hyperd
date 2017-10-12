@@ -646,39 +646,12 @@ func (h *jsonBasedHyperstart) AddRoute(r []hyperstartapi.Route) error {
 	return h.hyperstartCommand(hyperstartapi.INIT_SETUPROUTE, hyperstartapi.Routes{Routes: r})
 }
 
-func (h *jsonBasedHyperstart) UpdateInterface(t InfUpdateType, dev, newName string, ipAddresses []hyperstartapi.IpAddress, mtu uint64) error {
-	inf := hyperstartapi.NetworkInf{
-		Device:      dev,
-		IpAddresses: []hyperstartapi.IpAddress{},
-	}
-	switch t {
-	case AddInf:
-		inf.NewName = newName
-		inf.Mtu = mtu
-		inf.IpAddresses = ipAddresses
-		if err := h.hyperstartCommand(hyperstartapi.INIT_SETUPINTERFACE, inf); err != nil {
-			return fmt.Errorf("json: failed to send <add interface> command to hyperstart: %v", err)
-		}
-	case DelInf:
-		if err := h.hyperstartCommand(hyperstartapi.INIT_DELETEINTERFACE, inf); err != nil {
-			return fmt.Errorf("json: failed to send <delete interface> command to hyperstart. inf: %#v, error: %v", inf, err)
-		}
-	case AddIP:
-		inf.IpAddresses = ipAddresses
-		if err := h.hyperstartCommand(hyperstartapi.INIT_SETUPINTERFACE, inf); err != nil {
-			return fmt.Errorf("json: failed to send <add ip> command to hyperstart: %v", err)
-		}
-	case DelIP:
-		// TODO: add new interface to handle hyperstart delete interface @weizhang555
-	case SetMtu:
-		if mtu > 0 {
-			inf.Mtu = mtu
-			if err := h.hyperstartCommand(hyperstartapi.INIT_SETUPINTERFACE, inf); err != nil {
-				return fmt.Errorf("json: failed to send <SetMtu> command to hyperstart: %v", err)
-			}
-		}
-	}
-	return nil
+func (h *jsonBasedHyperstart) UpdateInterface(dev, ip, mask string) error {
+	return h.hyperstartCommand(hyperstartapi.INIT_SETUPINTERFACE, hyperstartapi.NetworkInf{
+		Device:    dev,
+		IpAddress: ip,
+		NetMask:   mask,
+	})
 }
 
 func (h *jsonBasedHyperstart) WriteStdin(container, process string, data []byte) (int, error) {
@@ -773,16 +746,16 @@ func (h *jsonBasedHyperstart) setupProcessIo(ps *pState, terminal bool) {
 	if ps.stdioSeq == 0 {
 		ps.stdioSeq = h.allocStreamSeq()
 	}
-	outPipe := utils.NewBytesPipe()
-	ps.stdoutPipe = outPipe
-	h.streamOuts[ps.stdioSeq] = streamOut{WriteCloser: outPipe, ps: ps}
+	stdoutPipe, stdout := io.Pipe() // TODO: make StreamOut nonblockable
+	ps.stdoutPipe = stdoutPipe
+	h.streamOuts[ps.stdioSeq] = streamOut{WriteCloser: stdout, ps: ps}
 	if !terminal {
 		if ps.stderrSeq == 0 {
 			ps.stderrSeq = h.allocStreamSeq()
 		}
-		errPipe := utils.NewBytesPipe()
-		ps.stderrPipe = errPipe
-		h.streamOuts[ps.stderrSeq] = streamOut{WriteCloser: errPipe, ps: ps}
+		stderrPipe, stderr := io.Pipe()
+		ps.stderrPipe = stderrPipe
+		h.streamOuts[ps.stderrSeq] = streamOut{WriteCloser: stderr, ps: ps}
 	}
 	ps.stdinPipe = streamIn{streamSeq: ps.stdioSeq, h: h}
 }

@@ -86,17 +86,12 @@ func (h *grpcBasedHyperstart) AddRoute(routes []hyperstartjson.Route) error {
 	return err
 }
 
-func (h *grpcBasedHyperstart) UpdateInterface(t InfUpdateType, dev, newName string, ipAddresses []hyperstartjson.IpAddress, mtu uint64) error {
-	req := &hyperstartgrpc.UpdateInterfaceRequest{
-		Type:    uint64(t),
+func (h *grpcBasedHyperstart) UpdateInterface(dev, ip, mask string) error {
+	_, err := h.grpc.UpdateInterface(h.ctx, &hyperstartgrpc.UpdateInterfaceRequest{
 		Device:  dev,
-		NewName: newName,
-		Mtu:     mtu,
-	}
-	for _, addr := range ipAddresses {
-		req.IpAddresses = append(req.IpAddresses, &hyperstartgrpc.IpAddress{addr.IpAddress, addr.NetMask})
-	}
-	_, err := h.grpc.UpdateInterface(h.ctx, req)
+		Address: ip,
+		Mask:    mask,
+	})
 	return err
 }
 
@@ -180,7 +175,7 @@ func process4json2grpc(p *hyperstartjson.Process) *hyperstartgrpc.Process {
 	}
 	return &hyperstartgrpc.Process{
 		Id:       p.Id,
-		User:     &hyperstartgrpc.User{Uid: p.User, Gid: p.Group, AdditionalGids: p.AdditionalGroups},
+		User:     &hyperstartgrpc.User{Uid: p.User, Gid: p.Group},
 		Terminal: p.Terminal,
 		Envs:     envs,
 		Args:     p.Args,

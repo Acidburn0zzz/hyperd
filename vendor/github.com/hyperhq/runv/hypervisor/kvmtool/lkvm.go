@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -36,7 +37,6 @@ type KvmtoolDriver struct {
 //implement the hypervisor.DriverContext interface
 type KvmtoolContext struct {
 	driver *KvmtoolDriver
-	conPty string
 }
 
 func InitDriver() *KvmtoolDriver {
@@ -85,14 +85,14 @@ func arguments(ctx *hypervisor.VmContext) []string {
 		"run", "-k", boot.Kernel, "-i", boot.Initrd, "-m", memParams,
 		"-c", cpuParams, "--name", ctx.Id}
 	//use ttyS0 as kernel console
-	args = append(args, "-p", "iommu=off console=ttyS0 "+json.HYPER_USE_SERIAL)
+	args = append(args, "-p", "console=ttyS0 "+json.HYPER_USE_SERIAL)
 
 	// kvmtool enforce uses ttyS0 as console,
 	// hyperstart can only use ttyS1 and ttyS2 as ctl and tty channel.
 	args = append(args, "--tty", "0", "--tty", "1", "--tty", "2")
 
 	// attach nic at the start since kvmtool doesn't support hotplug
-	args = append(args, "--network", "mode=tap,tapif="+network.NicName(ctx.Id, 0))
+	args = append(args, "--network", "mode=tap,tapif="+nicTapName(ctx.Id))
 
 	// arch specified
 	if arch_args := arch_arguments(); arch_args != nil {
@@ -106,6 +106,14 @@ func arguments(ctx *hypervisor.VmContext) []string {
 	args = append(args, "--9p", ctx.ShareDir+","+hypervisor.ShareDirTag)
 
 	return args
+}
+
+func nicTapName(id string) string {
+	str := strings.Split(id, "-")
+	if len(str) != 2 {
+		return id
+	}
+	return str[1]
 }
 
 func (kc *KvmtoolContext) Launch(ctx *hypervisor.VmContext) {
@@ -213,6 +221,11 @@ func (kc *KvmtoolContext) Launch(ctx *hypervisor.VmContext) {
 			conPty, ctlPty, ttyPty := lookupPtys(output[:len])
 			ctx.Log(hypervisor.INFO, "find %v %v %v", conPty, ctlPty, ttyPty)
 			if conPty != "" && ctlPty != "" && ttyPty != "" {
+				conSock, err = net.Listen("unix", ctx.ConsoleSockName)
+				if err != nil {
+					return
+				}
+
 				ctlSock, err = net.Listen("unix", ctx.HyperSockName)
 				if err != nil {
 					return
@@ -222,9 +235,9 @@ func (kc *KvmtoolContext) Launch(ctx *hypervisor.VmContext) {
 					return
 				}
 
-				kc.conPty = conPty
-				go sock2pty(ctlSock, ctlPty)
-				go sock2pty(ttySock, ttyPty)
+				go sock2pty(conSock, conPty, false)
+				go sock2pty(ctlSock, ctlPty, true)
+				go sock2pty(ttySock, ttyPty, true)
 
 				go func() {
 					// without this, guest burst output will crash kvmtool, why?
@@ -251,7 +264,7 @@ func (kc *KvmtoolContext) Launch(ctx *hypervisor.VmContext) {
 	err = fmt.Errorf("cannot find pts devices used by lkvm")
 }
 
-func sock2pty(ls net.Listener, ptypath string) {
+func sock2pty(ls net.Listener, ptypath string, input bool) {
 	defer ls.Close()
 
 	conn, err := ls.Accept()
@@ -286,11 +299,13 @@ func sock2pty(ls net.Listener, ptypath string) {
 			var newbuf []byte = nil
 			nr, er := src.Read(buf)
 			if nr > 0 {
-				newbuf = buf
 				if input {
 					newbuf = bytes.Replace(buf[:nr], []byte{1}, []byte{1, 1}, -1)
 					nr = len(newbuf)
+				} else {
+					newbuf = buf
 				}
+
 				nw, ew := dst.Write(newbuf[:nr])
 				if ew != nil {
 					glog.Infof("write failed: %v", ew)
@@ -319,8 +334,10 @@ func sock2pty(ls net.Listener, ptypath string) {
 	wg.Add(1)
 	go copy(conn, pty, false)
 
-	wg.Add(1)
-	go copy(pty, conn, true)
+	if input {
+		wg.Add(1)
+		go copy(pty, conn, true)
+	}
 
 	wg.Wait()
 }
@@ -412,7 +429,7 @@ func (kc *KvmtoolContext) RemoveDisk(ctx *hypervisor.VmContext, blockInfo *hyper
 func (kc *KvmtoolContext) AddNic(ctx *hypervisor.VmContext, host *hypervisor.HostNicInfo, guest *hypervisor.GuestNicInfo, result chan<- hypervisor.VmEvent) {
 	ctx.Log(hypervisor.INFO, "Hotplug is unsupported on kvmtool...")
 	// Nic has already attached on lkvm vm, so only add this interface into bridge
-	network.UpAndAddToBridge(network.NicName(ctx.Id, 0), host.Bridge, "")
+	network.UpAndAddToBridge(nicTapName(ctx.Id), host.Bridge)
 	result <- &hypervisor.NetDevInsertedEvent{
 		Id:         host.Id,
 		Index:      guest.Index,
@@ -436,34 +453,4 @@ func (kc *KvmtoolContext) AddMem(ctx *hypervisor.VmContext, slot, size int) erro
 
 func (kc *KvmtoolContext) Save(ctx *hypervisor.VmContext, path string) error {
 	return fmt.Errorf("Save is unsupported on kvmtool driver")
-}
-
-func (kc *KvmtoolContext) ConnectConsole(console chan<- string) error {
-	pty, err := os.OpenFile(kc.conPty, os.O_RDWR|syscall.O_NOCTTY, 0600)
-	if err != nil {
-		glog.Errorf("fail to open %v, %v", kc.conPty, err)
-		return err
-	}
-
-	_, err = term.SetRawTerminal(pty.Fd())
-	if err != nil {
-		glog.Errorf("fail to setrowmode for %v: %v", kc.conPty, err)
-		return err
-	}
-
-	go func() {
-		data := make([]byte, 128)
-		for {
-			nr, err := pty.Read(data)
-			if err != nil {
-				glog.Errorf("fail to read console: %v", err)
-				break
-			}
-			console <- string(data[:nr])
-		}
-		pty.Close()
-	}()
-
-	return nil
-
 }
