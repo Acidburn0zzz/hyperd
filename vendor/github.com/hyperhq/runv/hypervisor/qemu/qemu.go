@@ -283,7 +283,7 @@ func (qc *QemuContext) AddNic(ctx *hypervisor.VmContext, host *hypervisor.HostNi
 	go func() {
 		// close tap file if necessary
 		ev, ok := <-waitChan
-		syscall.Close(fd)
+		glog.Infof("AddNic result %v %+v", ok, ev)
 		if !ok {
 			close(result)
 		} else {
