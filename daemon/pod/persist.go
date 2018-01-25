@@ -192,7 +192,7 @@ func (p *XPod) savePod() error {
 
 	for inf, i := range p.interfaces {
 		interfaces = append(interfaces, inf)
-		if err := i.saveInterface(); err != nil {
+		if err := i.saveInterface(inf); err != nil {
 			return err
 		}
 	}
@@ -410,14 +410,14 @@ func (v *Volume) removeFromDB() error {
 	return removeMessage(v.p.factory.db, fmt.Sprintf(VX_KEY_FMT, v.p.Id(), v.spec.Name), v, "volume info")
 }
 
-func (inf *Interface) saveInterface() error {
+func (inf *Interface) saveInterface(id string) error {
 	ix := &types.PersistInterface{
 		Id:       inf.descript.Id,
 		Pod:      inf.p.Id(),
 		Spec:     inf.spec,
 		Descript: inf.descript,
 	}
-	return saveMessage(inf.p.factory.db, fmt.Sprintf(IF_KEY_FMT, inf.p.Id(), inf.descript.Id), ix, inf, "interface info")
+	return saveMessage(inf.p.factory.db, fmt.Sprintf(IF_KEY_FMT, inf.p.Id(), id), ix, inf, "interface info")
 }
 
 func (p *XPod) loadInterface(id string) error {
