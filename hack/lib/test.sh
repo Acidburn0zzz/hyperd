@@ -245,6 +245,7 @@ hyper::test::container_readonly_rootfs_and_volume() {
 
 hyper::test::portmapping() {
   echo "Container portmapping test"
+  sudo iptables -L -t nat
   ipaddr=$(ip addr show hyper0 |sed -ne 's/.*inet \([.0-9]\{7,15\}\)\/[0-9]\{1,2\} .*/\1/p')
   echo "hyper0 address is $ipaddr"
   started=
@@ -253,6 +254,7 @@ hyper::test::portmapping() {
     echo "got $response"
     if [ "x$started" == "x" ]; then
       started=$response
+      sudo iptables -L -t nat
       sleep 3
       nc $ipaddr 3000 <<END
 ok

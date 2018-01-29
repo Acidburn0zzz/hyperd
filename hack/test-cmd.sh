@@ -183,22 +183,6 @@ __EOF__
 
   hyper::test::command
   hyper::test::exitcode
-  hyper::test::exec
-  hyper::test::hostname
-  hyper::test::insert_file
-  hyper::test::map_file
-  hyper::test::with_volume
-  hyper::test::service
-  hyper::test::nfs_volume
-  hyper::test::execvm
-  hyper::test::remove_container_with_volume
-  hyper::test::imageuser
-  hyper::test::imageusergroup
-  hyper::test::specuseroverride
-  hyper::test::imagevolume
-  hyper::test::force_kill_container
-  hyper::test::container_logs_no_newline
-  hyper::test::container_readonly_rootfs_and_volume
   hyper::test::portmapping
 
   stop_hyperd
