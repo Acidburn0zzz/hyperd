@@ -38,4 +38,8 @@ install:
   - ./autogen.sh && ./configure && make
 
 script:
+  - sudo /sbin/iptables -L -n
+  - sudo /sbin/iptables -L -n -t nat
+  - sudo /sbin/iptables -t nat -F
+  - sudo /sbin/iptables -F
   - cd ${TRAVIS_BUILD_DIR} && hack/test-cmd.sh
