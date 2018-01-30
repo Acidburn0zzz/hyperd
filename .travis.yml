@@ -3,6 +3,8 @@ dist: trusty
 
 language: go
 go_import_path: github.com/hyperhq/hyperd
+# test with old image
+group: deprecated-2017Q4
 
 go:
   - 1.8
